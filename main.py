@@ -9,6 +9,7 @@ from models.user import User as UserModel  # 🔥 serve per creare tabella
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from utils.security import hash_password
 
+
 app = FastAPI()
 
 # 🔥 IMPORTANTE: crea tabelle DOPO aver importato i modelli
