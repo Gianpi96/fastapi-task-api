@@ -9,6 +9,8 @@ from models.user import User as UserModel  # 🔥 serve per creare tabella
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from utils.security import hash_password
 
+from fastapi.security import OAuth2PasswordRequestForm
+from utils.security import verify_password, create_access_token
 
 app = FastAPI()
 
@@ -184,3 +186,20 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(db_user)
 
     return db_user
+
+
+@app.post("/auth/token")
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+):
+    # Cerca utente nel DB
+    user = db.query(UserModel).filter(UserModel.username == form_data.username).first()
+
+    # Verifica credenziali
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Credenziali non valide")
+
+    # Crea JWT
+    access_token = create_access_token(data={"sub": user.username})
+
+    return {"access_token": access_token, "token_type": "bearer"}
