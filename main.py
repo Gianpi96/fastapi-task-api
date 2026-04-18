@@ -1,45 +1,35 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from database import engine, Base, get_db
 from models.tasks import Task as TaskModel
-from models.user import User as UserModel  # 🔥 serve per creare tabella
+from models.user import User as UserModel
+from utils.security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    decode_token,
+)
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
-from utils.security import hash_password
 
-from fastapi.security import OAuth2PasswordRequestForm
-from utils.security import verify_password, create_access_token
-
+# -----------------------
+# APP & DB SETUP
+# -----------------------
 app = FastAPI()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
-# 🔥 IMPORTANTE: crea tabelle DOPO aver importato i modelli
 Base.metadata.create_all(bind=engine)
 
 
-# 🔥 Root endpoint
-@app.get("/")
-def read_root():
-    return {"message": "hello world"}
-
-
-# 🔥 Health check
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
-
-
 # -----------------------
-# TASK SCHEMA
+# TASK SCHEMAS
 # -----------------------
-class Task(BaseModel):
-    model_config = ConfigDict(
-        from_attributes=True,
-        str_strip_whitespace=True,
-    )
+class TaskCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
 
-    id: int
     title: str = Field(..., min_length=3)
     description: Optional[str] = None
     completed: bool = False
@@ -52,89 +42,10 @@ class Task(BaseModel):
         return value.capitalize()
 
 
-# -----------------------
-# GET /tasks
-# -----------------------
-@app.get("/tasks", response_model=List[Task])
-def get_tasks(
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=10, ge=1, le=100),
-    completed: Optional[bool] = Query(default=None),
-    search: Optional[str] = Query(default=None, min_length=1),
-    db: Session = Depends(get_db),
-):
-    query = db.query(TaskModel)
+class Task(TaskCreate):
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
 
-    if completed is not None:
-        query = query.filter(TaskModel.completed == completed)
-
-    if search is not None:
-        query = query.filter(TaskModel.title.ilike(f"%{search}%"))
-
-    return query.offset(skip).limit(limit).all()
-
-
-# -----------------------
-# GET /tasks/{id}
-# -----------------------
-@app.get("/tasks/{task_id}", response_model=Task)
-def get_task(task_id: int, db: Session = Depends(get_db)):
-    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
-
-    if not task:
-        raise HTTPException(status_code=404, detail="Task non trovato")
-
-    return task
-
-
-# -----------------------
-# POST /tasks
-# -----------------------
-@app.post("/tasks", response_model=Task, status_code=201)
-def create_task(task: Task, db: Session = Depends(get_db)):
-    db_task = TaskModel(**task.model_dump())
-
-    db.add(db_task)
-    db.commit()
-    db.refresh(db_task)
-
-    return db_task
-
-
-# -----------------------
-# PUT /tasks/{id}
-# -----------------------
-@app.put("/tasks/{task_id}", response_model=Task)
-def update_task(task_id: int, updated_task: Task, db: Session = Depends(get_db)):
-    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
-
-    if not task:
-        raise HTTPException(status_code=404, detail="Task non trovato")
-
-    task.title = updated_task.title
-    task.description = updated_task.description
-    task.completed = updated_task.completed
-
-    db.commit()
-    db.refresh(task)
-
-    return task
-
-
-# -----------------------
-# DELETE /tasks/{id}
-# -----------------------
-@app.delete("/tasks/{task_id}")
-def delete_task(task_id: int, db: Session = Depends(get_db)):
-    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
-
-    if not task:
-        raise HTTPException(status_code=404, detail="Task non trovato")
-
-    db.delete(task)
-    db.commit()
-
-    return {"message": "Task eliminato"}
+    id: int
 
 
 # -----------------------
@@ -156,11 +67,48 @@ class UserResponse(BaseModel):
 
 
 # -----------------------
-# POST /auth/register
+# AUTH DEPENDENCY
+# -----------------------
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> UserModel:
+    payload = decode_token(token)
+
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Token non valido o scaduto")
+
+    username: str = payload.get("sub")
+
+    if username is None:
+        raise HTTPException(status_code=401, detail="Token non valido")
+
+    user = db.query(UserModel).filter(UserModel.username == username).first()
+
+    if user is None:
+        raise HTTPException(status_code=401, detail="Utente non trovato")
+
+    return user
+
+
+# -----------------------
+# ROOT & HEALTH
+# -----------------------
+@app.get("/")
+def read_root():
+    return {"message": "hello world"}
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+# -----------------------
+# AUTH ENDPOINTS
 # -----------------------
 @app.post("/auth/register", response_model=UserResponse, status_code=201)
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
-    # Controllo duplicati
     existing_user = (
         db.query(UserModel)
         .filter((UserModel.username == user.username) | (UserModel.email == user.email))
@@ -170,14 +118,10 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     if existing_user:
         raise HTTPException(status_code=400, detail="Username o email già registrati")
 
-    # Hash password
-    hashed_pwd = hash_password(user.password)
-
-    # Crea utente
     db_user = UserModel(
         username=user.username,
         email=user.email,
-        hashed_password=hashed_pwd,
+        hashed_password=hash_password(user.password),
         is_active=True,
     )
 
@@ -190,16 +134,105 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
 
 @app.post("/auth/token")
 def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
 ):
-    # Cerca utente nel DB
     user = db.query(UserModel).filter(UserModel.username == form_data.username).first()
 
-    # Verifica credenziali
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Credenziali non valide")
 
-    # Crea JWT
     access_token = create_access_token(data={"sub": user.username})
 
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+# -----------------------
+# TASK ENDPOINTS
+# -----------------------
+@app.get("/tasks", response_model=List[Task])
+def get_tasks(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
+    completed: Optional[bool] = Query(default=None),
+    search: Optional[str] = Query(default=None, min_length=1),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    query = db.query(TaskModel)
+
+    if completed is not None:
+        query = query.filter(TaskModel.completed == completed)
+
+    if search is not None:
+        query = query.filter(TaskModel.title.ilike(f"%{search}%"))
+
+    return query.offset(skip).limit(limit).all()
+
+
+@app.get("/tasks/{task_id}", response_model=Task)
+def get_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Task non trovato")
+
+    return task
+
+
+@app.post("/tasks", response_model=Task, status_code=201)
+def create_task(
+    task: TaskCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    db_task = TaskModel(**task.model_dump())
+
+    db.add(db_task)
+    db.commit()
+    db.refresh(db_task)
+
+    return db_task
+
+
+@app.put("/tasks/{task_id}", response_model=Task)
+def update_task(
+    task_id: int,
+    updated_task: TaskCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Task non trovato")
+
+    task.title = updated_task.title
+    task.description = updated_task.description
+    task.completed = updated_task.completed
+
+    db.commit()
+    db.refresh(task)
+
+    return task
+
+
+@app.delete("/tasks/{task_id}")
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Task non trovato")
+
+    db.delete(task)
+    db.commit()
+
+    return {"message": "Task eliminato"}
