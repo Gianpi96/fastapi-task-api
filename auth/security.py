@@ -1,13 +1,9 @@
-import os
 import bcrypt
 import jwt
 from datetime import datetime, timezone, timedelta
 from jwt import ExpiredSignatureError, InvalidTokenError
 
-
-SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key")  # ⚠️ usa .env in produzione
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+from config.settings import settings
 
 
 def hash_password(password: str) -> str:
@@ -25,13 +21,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def decode_token(token: str) -> dict | None:
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except (ExpiredSignatureError, InvalidTokenError):
         return None
