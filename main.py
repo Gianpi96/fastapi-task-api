@@ -7,14 +7,12 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 from database import engine, Base, get_db
 from models.tasks import Task as TaskModel
 from models.user import User as UserModel
-from utils.security import (
+from auth.security import (
     hash_password,
     verify_password,
     create_access_token,
     decode_token,
 )
-
-
 
 
 # -----------------------
