@@ -13,6 +13,7 @@ from auth.security import (
     create_access_token,
     decode_token,
 )
+from config.settings import settings
 
 
 # -----------------------
@@ -46,6 +47,7 @@ class Task(TaskCreate):
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
 
     id: int
+    owner_id: int
 
 
 # -----------------------
@@ -104,6 +106,16 @@ def health_check():
     return {"status": "ok"}
 
 
+# ⚠️ SOLO PER DEBUG - rimuovere in produzione
+@app.get("/debug/settings")
+def debug_settings():
+    return {
+        "algorithm": settings.ALGORITHM,
+        "expire_minutes": settings.ACCESS_TOKEN_EXPIRE_MINUTES,
+        "secret_key_set": bool(settings.SECRET_KEY),
+    }
+
+
 # -----------------------
 # AUTH ENDPOINTS
 # -----------------------
@@ -159,7 +171,9 @@ def get_tasks(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    query = db.query(TaskModel)
+    query = db.query(TaskModel).filter(
+        TaskModel.owner_id == current_user.id
+    )  # 👈 solo i task dell'utente
 
     if completed is not None:
         query = query.filter(TaskModel.completed == completed)
@@ -176,7 +190,11 @@ def get_task(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+    task = (
+        db.query(TaskModel)
+        .filter(TaskModel.id == task_id, TaskModel.owner_id == current_user.id)  # 👈
+        .first()
+    )
 
     if not task:
         raise HTTPException(status_code=404, detail="Task non trovato")
@@ -190,7 +208,9 @@ def create_task(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    db_task = TaskModel(**task.model_dump())
+    db_task = TaskModel(
+        **task.model_dump(), owner_id=current_user.id
+    )  # 👈 assegna owner
 
     db.add(db_task)
     db.commit()
@@ -206,7 +226,11 @@ def update_task(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+    task = (
+        db.query(TaskModel)
+        .filter(TaskModel.id == task_id, TaskModel.owner_id == current_user.id)  # 👈
+        .first()
+    )
 
     if not task:
         raise HTTPException(status_code=404, detail="Task non trovato")
@@ -227,7 +251,11 @@ def delete_task(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
+    task = (
+        db.query(TaskModel)
+        .filter(TaskModel.id == task_id, TaskModel.owner_id == current_user.id)  # 👈
+        .first()
+    )
 
     if not task:
         raise HTTPException(status_code=404, detail="Task non trovato")
