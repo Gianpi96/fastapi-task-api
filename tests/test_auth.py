@@ -12,6 +12,7 @@ def test_register_success(client):
     data = response.json()
     assert data["username"] == "user1"
     assert "id" in data
+    assert "hashed_password" not in data  # 🔒 sicurezza
 
 
 def test_register_duplicate(client):
@@ -21,14 +22,15 @@ def test_register_duplicate(client):
         "password": "password123",
     }
 
-    client.post("/auth/register", json=user)
-    response = client.post("/auth/register", json=user)
+    r1 = client.post("/auth/register", json=user)
+    assert r1.status_code == 201  # 👉 assicurati che il primo passi
 
+    response = client.post("/auth/register", json=user)
     assert response.status_code == 400
 
 
 def test_login_success(client):
-    client.post(
+    r = client.post(
         "/auth/register",
         json={
             "username": "loginuser",
@@ -36,6 +38,7 @@ def test_login_success(client):
             "password": "password123",
         },
     )
+    assert r.status_code == 201  # 👉 fail immediato se register rompe
 
     response = client.post(
         "/auth/token",
