@@ -1,3 +1,6 @@
+# test_auth.py — VERSIONE CORRETTA
+
+
 def test_register_success(client):
     response = client.post(
         "/auth/register",
@@ -7,24 +10,17 @@ def test_register_success(client):
             "password": "password123",
         },
     )
-
     assert response.status_code == 201
     data = response.json()
     assert data["username"] == "user1"
     assert "id" in data
-    assert "hashed_password" not in data  # 🔒 sicurezza
+    assert "hashed_password" not in data
 
 
 def test_register_duplicate(client):
-    user = {
-        "username": "dupuser",
-        "email": "dup@test.com",
-        "password": "password123",
-    }
-
+    user = {"username": "dupuser", "email": "dup@test.com", "password": "password123"}
     r1 = client.post("/auth/register", json=user)
-    assert r1.status_code == 201  # 👉 assicurati che il primo passi
-
+    assert r1.status_code == 201
     response = client.post("/auth/register", json=user)
     assert response.status_code == 400
 
@@ -38,8 +34,7 @@ def test_login_success(client):
             "password": "password123",
         },
     )
-    assert r.status_code == 201  # 👉 fail immediato se register rompe
-
+    assert r.status_code == 201
     response = client.post(
         "/auth/token",
         data={
@@ -47,7 +42,6 @@ def test_login_success(client):
             "password": "password123",
         },
     )
-
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data
@@ -56,8 +50,6 @@ def test_login_success(client):
 
 def test_login_wrong_credentials(client):
     response = client.post(
-        "/auth/token",
-        data={"username": "wrong", "password": "wrong"},
+        "/auth/token", data={"username": "wrong", "password": "wrong"}
     )
-
     assert response.status_code == 401
