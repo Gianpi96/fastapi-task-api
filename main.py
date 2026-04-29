@@ -1,3 +1,4 @@
+import logging
 import os
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -9,6 +10,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from api.exception_handlers import register_exception_handlers
 from api.tasks import router as tasks_router
 from auth.security import (
     create_access_token,
@@ -18,14 +20,28 @@ from auth.security import (
 )
 from config.settings import settings
 from database import Base, engine, get_db
-from models.user import User as UserModel
 from models.tasks import Task as TaskModel  # noqa: F401 — registra la tabella
+from models.user import User as UserModel
+from schemas.token import TokenResponse
 from schemas.user import UserCreate, UserResponse
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+)
+logger = logging.getLogger(__name__)
 
 # -----------------------
 # APP SETUP
 # -----------------------
-app = FastAPI()
+app = FastAPI(
+    title="Task Manager API",
+    description="API per la gestione dei task con autenticazione JWT",
+    version="1.0.0",
+)
+
+# Exception handlers personalizzati — registrati PRIMA dei middleware
+register_exception_handlers(app)
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -42,25 +58,24 @@ app.add_middleware(
 
 Base.metadata.create_all(bind=engine)
 
-# Registra i router
 app.include_router(tasks_router)
 
 
 # -----------------------
 # HEALTH
 # -----------------------
-@app.get("/")
-def read_root():
+@app.get("/", tags=["health"])
+def read_root() -> dict:
     return {"message": "hello world"}
 
 
-@app.get("/health")
-def health_check():
+@app.get("/health", tags=["health"])
+def health_check() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/debug/settings")
-def debug_settings():
+@app.get("/debug/settings", tags=["debug"])
+def debug_settings() -> dict:
     if settings.ENV != "development":
         raise HTTPException(status_code=404)
     return {
@@ -74,7 +89,18 @@ def debug_settings():
 # -----------------------
 # AUTH
 # -----------------------
-@app.post("/auth/register", response_model=UserResponse, status_code=201)
+@app.post(
+    "/auth/register",
+    response_model=UserResponse,  # esclude hashed_password, password, e qualsiasi
+    status_code=201,  # campo non dichiarato in UserResponse
+    tags=["auth"],
+    summary="Registra un nuovo utente",
+    responses={
+        201: {"description": "Utente creato con successo"},
+        400: {"description": "Username o email già registrati"},
+        422: {"description": "Dati non validi"},
+    },
+)
 @limiter.limit("3/minute")
 def register_user(request: Request, user: UserCreate, db: Session = Depends(get_db)):
     existing = (
@@ -97,12 +123,23 @@ def register_user(request: Request, user: UserCreate, db: Session = Depends(get_
         db.refresh(db_user)
     except SQLAlchemyError:
         db.rollback()
+        logger.error("Errore DB durante registrazione utente: %s", user.username)
         raise HTTPException(status_code=500, detail="Errore durante la registrazione")
 
+    logger.info("Nuovo utente registrato: %s", db_user.username)
     return db_user
 
 
-@app.post("/auth/token")
+@app.post(
+    "/auth/token",
+    response_model=TokenResponse,  # solo access_token e token_type — niente altro
+    tags=["auth"],
+    summary="Login — ottieni il token JWT",
+    responses={
+        200: {"description": "Login effettuato con successo"},
+        401: {"description": "Credenziali non valide"},
+    },
+)
 @limiter.limit("5/minute")
 def login(
     request: Request,
@@ -117,7 +154,8 @@ def login(
     if not user or not password_ok:
         raise HTTPException(status_code=401, detail="Credenziali non valide")
 
-    return {
-        "access_token": create_access_token(data={"sub": user.username}),
-        "token_type": "bearer",
-    }
+    logger.info("Login effettuato: %s", form_data.username)
+    return TokenResponse(
+        access_token=create_access_token(data={"sub": user.username}),
+        token_type="bearer",
+    )
