@@ -1,6 +1,5 @@
 name: Tests & Coverage
 
-# Trigger: eseguito ad ogni push su main e ad ogni pull request
 on:
   push:
     branches:
@@ -15,24 +14,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Scarica il codice del repository
       - name: Checkout codice
         uses: actions/checkout@v4
 
-      # 2. Installa Python 3.11
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"          # cache delle dipendenze — velocizza i run successivi
 
-      # 3. Installa le dipendenze
       - name: Installa dipendenze
         run: pip install -r requirements.txt pytest-cov
 
-      # 4. Crea il .env di test con SQLite e una SECRET_KEY valida
-      #    I valori sensibili vengono da GitHub Secrets (Settings → Secrets)
-      #    Per i test usiamo SQLite — nessun PostgreSQL necessario in CI
       - name: Crea .env di test
         run: |
           echo "SECRET_KEY=${{ secrets.SECRET_KEY || 'chiave-di-test-lunga-almeno-32-caratteri-per-ci' }}" >> .env
@@ -40,23 +32,9 @@ jobs:
           echo "ACCESS_TOKEN_EXPIRE_MINUTES=30" >> .env
           echo "ENV=development" >> .env
 
-      # 5. Esegui pytest con coverage
-      #    --cov=. → misura coverage su tutto il progetto
-      #    --cov-report=term-missing → mostra le righe non coperte nel log
-      #    --cov-fail-under=70 → fa fallire la build se coverage < 70%
       - name: Esegui pytest con coverage
         run: |
           pytest --cov=. \
                  --cov-report=term-missing \
-                 --cov-report=xml \
                  --cov-fail-under=70 \
                  -v
-
-      # 6. (Opzionale) Carica il report XML su Codecov per visualizzarlo online
-      #    Rimuovi questo step se non usi Codecov
-      - name: Upload coverage su Codecov
-        if: always()                        # esegui anche se i test falliscono
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.xml
-          fail_ci_if_error: false           # non blocca la build se Codecov non risponde
