@@ -34,3 +34,5 @@ jobs:
 
       - name: Esegui pytest
         run: pytest --cov=. --cov-report=term-missing --cov-fail-under=70 -v
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
