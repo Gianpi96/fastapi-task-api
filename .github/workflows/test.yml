@@ -34,6 +34,10 @@ jobs:
           echo "ACCESS_TOKEN_EXPIRE_MINUTES=30" >> .env
           echo "ENV=development" >> .env
 
+      - name: Mostra struttura
+        run: |
+          ls -la
+          ls -la tests/ || echo "cartella tests non trovata"
+
       - name: Esegui pytest
-        run: pytest --cov=. --cov-report=term-missing --cov-fail-under=70 -vgit 
-        
+        run: pytest --cov=. --cov-report=term-missing --cov-fail-under=70 -v --tb=short
