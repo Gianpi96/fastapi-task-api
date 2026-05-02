@@ -15,17 +15,47 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 @router.get(
     "",
     response_model=List[TaskResponse],
-    summary="Lista dei task dell'utente autenticato",
+    summary="Lista task con filtri e paginazione",
+    description="""
+Restituisce i task dell'utente autenticato con supporto a:
+
+- **Paginazione**: `skip` (offset) e `limit` (max risultati)
+- **Filtro stato**: `completed=true` o `completed=false`
+- **Ricerca**: `search=parola` cerca nel titolo (case insensitive)
+
+**Esempi:**
+- `GET /tasks` → tutti i task (max 10)
+- `GET /tasks?limit=5&skip=10` → pagina 3 con 5 elementi
+- `GET /tasks?completed=false` → solo task non completati
+- `GET /tasks?search=latte` → task con "latte" nel titolo
+- `GET /tasks?completed=false&search=spesa` → filtri combinati
+    """,
     responses={
-        200: {"description": "Lista task restituita"},
+        200: {"description": "Lista task restituita con successo"},
         401: {"description": "Token mancante o non valido"},
     },
 )
 def get_tasks(
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=10, ge=1, le=100),
-    completed: Optional[bool] = Query(default=None),
-    search: Optional[str] = Query(default=None, min_length=1),
+    skip: int = Query(
+        default=0,
+        ge=0,
+        description="Numero di task da saltare (offset per la paginazione)",
+    ),
+    limit: int = Query(
+        default=10,
+        ge=1,
+        le=100,
+        description="Numero massimo di task da restituire (max 100)",
+    ),
+    completed: Optional[bool] = Query(
+        default=None,
+        description="Filtra per stato: `true` = completati, `false` = da fare, ometti = tutti",
+    ),
+    search: Optional[str] = Query(
+        default=None,
+        min_length=1,
+        description="Cerca nel titolo del task (case insensitive)",
+    ),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
@@ -46,7 +76,7 @@ def get_tasks(
     responses={
         200: {"description": "Task trovato"},
         401: {"description": "Token mancante o non valido"},
-        404: {"description": "Task non trovato"},
+        404: {"description": "Task non trovato o non appartiene all'utente"},
     },
 )
 def get_task(
@@ -62,10 +92,21 @@ def get_task(
     response_model=TaskResponse,
     status_code=201,
     summary="Crea un nuovo task",
+    description="""
+Crea un nuovo task per l'utente autenticato.
+
+Dopo la creazione viene inviata una **notifica email in background** — 
+la risposta al client è immediata, l'email parte in modo asincrono.
+
+**Validazioni:**
+- `title`: minimo 3 caratteri, non può essere solo numeri
+- `description`: opzionale
+- `completed`: default `false`
+    """,
     responses={
         201: {"description": "Task creato con successo"},
         401: {"description": "Token mancante o non valido"},
-        422: {"description": "Dati non validi (es. titolo solo numeri)"},
+        422: {"description": "Dati non validi"},
     },
 )
 def create_task(
