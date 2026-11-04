@@ -1,5 +1,7 @@
 # FastAPI Task Manager
 
+*English summary: REST API for personal tasks with JWT authentication, per-user data isolation, Alembic migrations, SQLite or PostgreSQL, tests and CI. The documentation below is in Italian.*
+
 API REST per la gestione di task personali con autenticazione JWT.
 Progetto portfolio che dimostra architettura professionale, sicurezza, testing e CI/CD.
 
@@ -56,7 +58,7 @@ source .venv/bin/activate   # Mac/Linux
 pip install -r requirements.txt
 
 # Crea il file .env
-cp .env.development .env
+cp .env.example .env
 # Modifica SECRET_KEY con una chiave sicura:
 # python -c "import secrets; print(secrets.token_hex(32))"
 
@@ -77,9 +79,9 @@ Apri **http://localhost:8000/docs** per la documentazione interattiva.
 # Avvia PostgreSQL
 docker compose up -d
 
-# Attiva la configurazione PostgreSQL
-cp .env.production .env
-# Modifica SECRET_KEY nel .env
+# Attiva la configurazione PostgreSQL: copia .env.example in .env, imposta SECRET_KEY
+# e usa la DATABASE_URL di PostgreSQL indicata (commentata) nel file
+cp .env.example .env
 
 # Applica le migration
 alembic upgrade head
